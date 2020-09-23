@@ -1,10 +1,12 @@
 package client;
 
-import server.FileMetadata;
-
 import java.io.*;
 import java.net.Socket;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.zip.CRC32;
+import java.util.zip.CheckedInputStream;
 
 public class Client {
     String filePath;
@@ -15,6 +17,7 @@ public class Client {
     OutputStream socketOutputStream;
     InputStream socketInputStream;
     ObjectOutputStream objectOutputStream;
+    CheckedInputStream checkedInputStream;
 
     public Client(String filePath, String serverAddress, int serverPort) {
         this.filePath = filePath;
@@ -39,6 +42,9 @@ public class Client {
             if (fileInputStream != null) {
                 fileInputStream.close();
             }
+            if (objectOutputStream != null) {
+                objectOutputStream.close();
+            }
             if (socket != null) {
                 socket.close();
             }
@@ -60,26 +66,42 @@ public class Client {
             return;
         }
 
-        byte[] buffer = new byte[8 * 1024];
 
         fileInputStream = new FileInputStream(file);
         socketOutputStream = socket.getOutputStream();
         socketInputStream = socket.getInputStream();
         objectOutputStream = new ObjectOutputStream(socket.getOutputStream());
+        checkedInputStream = new CheckedInputStream(fileInputStream, new CRC32());
 
-        if (file.getName().length() < 4 * 1024) {
-            objectOutputStream.writeObject(new FileMetadata(file.length(), file.getName()));
+        byte[] buffer;
+
+        if (file.getName().length() <= 4 * 1024) {
+            buffer = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.BIG_ENDIAN).putInt((int) file.length()).array();
+            socketOutputStream.write(buffer, 0, Integer.BYTES);
+            buffer = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.BIG_ENDIAN).putInt(file.getName().length()).array();
+            socketOutputStream.write(buffer, 0, Integer.BYTES);
+            buffer = file.getName().getBytes();
+            socketOutputStream.write(buffer);
         } else {
             System.out.println("Filename must not exceed 4096 bytes");
             close();
             return;
         }
 
-
+        buffer = new byte[8 * 1024];
         int count;
-        while ((count = fileInputStream.read(buffer)) > 0) {
+        while ((count = checkedInputStream.read(buffer)) > 0) {
             socketOutputStream.write(buffer, 0, count);
         }
+
+        socketInputStream.read(buffer);
+        if (!"Got filesize bytes".equals(new String(buffer, StandardCharsets.UTF_8).replaceAll("\u0000.*", ""))) {
+            System.out.println("Didn't get confirmation of receipt of the file");
+        }
+
+
+        socketOutputStream.write(ByteBuffer.allocate(Long.BYTES).putLong(checkedInputStream.getChecksum().getValue()).array());
+
 
         if (socketInputStream.read(buffer) > 0) {
             System.out.println(new String(buffer, StandardCharsets.UTF_8).replaceAll("\u0000.*", ""));

@@ -8,7 +8,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 public class Server extends Thread {
-    private final int CORE_POOL_SIZE = 5;
+    private final int CORE_POOL_SIZE = 1;
     private final int MAX_POOL_SIZE = 40;
     private final int KEEP_ALIVE_TIME = 10;
     int port;
@@ -21,7 +21,7 @@ public class Server extends Thread {
     @Override
     public void run() {
         ThreadPoolExecutor executorPool = new ThreadPoolExecutor(CORE_POOL_SIZE, MAX_POOL_SIZE, KEEP_ALIVE_TIME,
-                TimeUnit.SECONDS, new ArrayBlockingQueue<>(10_000));
+                TimeUnit.SECONDS, new ArrayBlockingQueue<>(100));
         try {
             s = new ServerSocket(port);
         } catch (IOException e) {
@@ -39,7 +39,7 @@ public class Server extends Thread {
                 return;
             }
             System.out.println("Client " + clientSocket.getInetAddress().toString()
-                    + "  " + clientSocket.getPort());
+                    + "  " + clientSocket.getPort() + " connected");
             executorPool.execute(new Connection(clientSocket));
         }
     }

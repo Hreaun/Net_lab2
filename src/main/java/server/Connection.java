@@ -3,15 +3,20 @@ package server;
 import java.io.*;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.zip.CRC32;
+import java.util.zip.CheckedInputStream;
 
 public class Connection implements Runnable {
+    private final int WAIT_TIME = 30_000;
     private final Socket clientSocket;
     private File outFile;
-    FileMetadata fileMetadata;
     InputStream socketInputStream;
     ObjectInputStream objectInputStream;
     OutputStream fileOutputStream;
     OutputStream socketOutputStream;
+    CheckedInputStream checkedInputStream;
 
 
     public Connection(Socket clientSocket) {
@@ -43,6 +48,9 @@ public class Connection implements Runnable {
             if (fileOutputStream != null) {
                 fileOutputStream.close();
             }
+            if (objectInputStream != null) {
+                objectInputStream.close();
+            }
             if (clientSocket != null) {
                 clientSocket.close();
             }
@@ -56,23 +64,35 @@ public class Connection implements Runnable {
             socketInputStream = clientSocket.getInputStream();
             socketOutputStream = clientSocket.getOutputStream();
             objectInputStream = new ObjectInputStream(clientSocket.getInputStream());
+            checkedInputStream = new CheckedInputStream(socketInputStream, new CRC32());
         } catch (IOException ex) {
             System.out.println("Can't get socket input/output stream");
             return;
         }
 
+        byte[] fileSize = new byte[Integer.BYTES];
+        byte[] nameSize = new byte[Integer.BYTES];
+        byte[] fileName = new byte[0];
+
         try {
-            fileMetadata = (FileMetadata) objectInputStream.readObject();
-            if (fileMetadata.filename == null) {
-                System.out.println("Filename is not provided");
-                close();
+            if (socketInputStream.read(fileSize, 0, Integer.BYTES) != Integer.BYTES) {
+                // ошибка
                 return;
             }
-        } catch (IOException | ClassNotFoundException e) {
+            if (socketInputStream.read(nameSize, 0, Integer.BYTES) != Integer.BYTES) {
+                // ошибка
+                return;
+            }
+            fileName = new byte[ByteBuffer.wrap(nameSize).getInt()];
+            if (socketInputStream.read(fileName) != fileName.length) {
+                // ошибка
+                return;
+            }
+        } catch (IOException e) {
             System.out.println(e.getMessage());
         }
 
-        nameCheck(fileMetadata.filename);
+        nameCheck(new String(fileName, StandardCharsets.UTF_8));
 
         try {
             fileOutputStream = new FileOutputStream(outFile);
@@ -83,12 +103,19 @@ public class Connection implements Runnable {
         }
 
         byte[] buffer = new byte[8 * 1024];
+        int fileSizeInt = ByteBuffer.wrap(fileSize).getInt();
 
         int count;
+        int sizeCounter = 0;
         try {
-            clientSocket.setSoTimeout(2000);
-            while ((count = socketInputStream.read(buffer)) > 0) {
+            clientSocket.setSoTimeout(WAIT_TIME);
+            while ((count = checkedInputStream.read(buffer)) > 0) {
+                clientSocket.setSoTimeout(WAIT_TIME);
                 fileOutputStream.write(buffer, 0, count);
+                sizeCounter += count;
+                if (sizeCounter >= fileSizeInt) {
+                    break;
+                }
             }
         } catch (SocketTimeoutException ignored) {
         } catch (IOException e) {
@@ -96,9 +123,26 @@ public class Connection implements Runnable {
             close();
         }
 
+        //отправить подтверждение получения fileSize байтов и ждать чексумму
+
+        byte[] clientChecksumBytes = new byte[Long.BYTES];
         try {
-            if (outFile.length() == fileMetadata.fileSize) {
-                socketOutputStream.write("Got the file successfully".getBytes());
+            socketOutputStream.write("Got filesize bytes".getBytes());
+            clientSocket.setSoTimeout(WAIT_TIME);
+            if (socketInputStream.read(clientChecksumBytes, 0, Long.BYTES) != Long.BYTES) {
+                socketOutputStream.write("The file transfer failed".getBytes());
+            }
+        }catch (SocketTimeoutException ignored){
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        long clientChecksum = ByteBuffer.wrap(clientChecksumBytes).getLong();
+        long serverChecksum = checkedInputStream.getChecksum().getValue();
+
+        try {
+            if ((outFile.length() == fileSizeInt) && (clientChecksum == serverChecksum)) {
+                socketOutputStream.write("The file uploaded successfully".getBytes());
             } else {
                 socketOutputStream.write("The file transfer failed".getBytes());
             }
