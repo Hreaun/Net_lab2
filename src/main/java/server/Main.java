@@ -4,6 +4,10 @@ import java.util.Scanner;
 
 public class Main {
     public static void main(String[] args) {
+        if (args.length != 1) {
+            System.out.println("Enter port of the server");
+            return;
+        }
         Server server;
         try {
             server = new Server(Integer.parseInt(args[0]));

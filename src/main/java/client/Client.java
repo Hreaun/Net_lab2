@@ -56,7 +56,7 @@ public class Client {
             try {
                 file = new File(filePath);
             } catch (NullPointerException e) {
-                System.out.println("Cannot find the file with given name");
+                System.out.println("Cannot find a file with the given name");
                 return;
             }
             if (file.length() > 1e12) {
@@ -89,8 +89,9 @@ public class Client {
                 socketOutputStream.write(buffer, 0, count);
             }
 
-            socketInputStream.read(buffer);
-            if (!"Got filesize bytes".equals(new String(buffer, StandardCharsets.UTF_8).replaceAll("\u0000.*", ""))) {
+            byte[] okMessage = new byte[2];
+            socketInputStream.read(okMessage);
+            if (!"OK".equals(new String(okMessage, StandardCharsets.UTF_8))){
                 System.out.println("Didn't get confirmation of receipt of the file");
                 return;
             }
@@ -98,6 +99,7 @@ public class Client {
             socketOutputStream.write(ByteBuffer.allocate(Long.BYTES).putLong(checkedInputStream.getChecksum().getValue()).array());
 
 
+            buffer = new byte[40];
             if (socketInputStream.read(buffer) > 0) {
                 System.out.println(new String(buffer, StandardCharsets.UTF_8).replaceAll("\u0000.*", ""));
             } else {

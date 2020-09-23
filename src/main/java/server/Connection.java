@@ -114,7 +114,7 @@ public class Connection implements Runnable {
 
             byte[] clientChecksumBytes = new byte[Long.BYTES];
 
-            socketOutputStream.write("Got filesize bytes".getBytes());
+            socketOutputStream.write("OK".getBytes());
             clientSocket.setSoTimeout(WAIT_TIME);
             if (socketInputStream.read(clientChecksumBytes, 0, Long.BYTES) != Long.BYTES) {
                 socketOutputStream.write("The file transfer failed".getBytes());
