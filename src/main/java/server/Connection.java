@@ -5,11 +5,13 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.zip.CRC32;
 import java.util.zip.CheckedInputStream;
 
 public class Connection implements Runnable {
-    private final int WAIT_TIME = 30_000;
+    private final int WAIT_TIME = 3_000;
     private final Socket clientSocket;
     private File outFile;
     InputStream socketInputStream;
@@ -56,6 +58,12 @@ public class Connection implements Runnable {
         }
     }
 
+    private void printSpeed(long bytesPerLastSecs, long bytesReceived, Instant lastMeasureTime, Instant startRecvTime) {
+        System.out.println(clientSocket.getInetAddress() + "  " + clientSocket.getPort() +
+                " Speed: " + (bytesPerLastSecs / (Duration.between(lastMeasureTime, Instant.now()).toMillis())) / (long) 1e3 +
+                "MB/s, Avg speed: " + (bytesReceived / (Duration.between(startRecvTime, Instant.now()).toMillis())) / (long) 1e3 + "MB/s");
+    }
+
     @Override
     public void run() {
         try {
@@ -68,12 +76,12 @@ public class Connection implements Runnable {
                 return;
             }
 
-            byte[] fileSize = new byte[Integer.BYTES];
+            byte[] fileSize = new byte[Long.BYTES];
             byte[] nameSize = new byte[Integer.BYTES];
             byte[] fileName;
 
 
-            if (socketInputStream.read(fileSize, 0, Integer.BYTES) != Integer.BYTES) {
+            if (socketInputStream.read(fileSize, 0, Long.BYTES) != Long.BYTES) {
                 System.out.println("Didn't get file size");
                 return;
             }
@@ -96,26 +104,55 @@ public class Connection implements Runnable {
                 return;
             }
 
-            byte[] buffer = new byte[8 * 1024];
-            int fileSizeInt = ByteBuffer.wrap(fileSize).getInt();
+            byte[] buffer = new byte[4 * 1024];
+            long fileSizeLong = ByteBuffer.wrap(fileSize).getLong();
 
             int count;
-            int sizeCounter = 0;
+            int timeoutCounter = 0;
+            long bytesReceived = 0;
+            long bytesPerLastSecs = 0;
+
+            Instant startRecvTime = Instant.now();
+            Instant lastMeasureTime = Instant.now();
 
             clientSocket.setSoTimeout(WAIT_TIME);
-            while ((count = checkedInputStream.read(buffer)) > 0) {
-                clientSocket.setSoTimeout(WAIT_TIME);
-                fileOutputStream.write(buffer, 0, count);
-                sizeCounter += count;
-                if (sizeCounter >= fileSizeInt) {
-                    break;
+
+
+            while (bytesReceived < fileSizeLong) {
+                try {
+                    count = checkedInputStream.read(buffer);
+                    bytesReceived += count;
+                    bytesPerLastSecs += count;
+                    if (Duration.between(lastMeasureTime, Instant.now()).toMillis() >= 3e3) {
+                        printSpeed(bytesPerLastSecs, bytesReceived, lastMeasureTime, startRecvTime);
+                        bytesPerLastSecs = 0;
+                        lastMeasureTime = Instant.now();
+                    }
+                    timeoutCounter = 0;
+                    clientSocket.setSoTimeout(WAIT_TIME);
+                    fileOutputStream.write(buffer, 0, count);
+
+                } catch (SocketTimeoutException e) {
+                    printSpeed(bytesPerLastSecs, bytesReceived, lastMeasureTime, startRecvTime);
+                    bytesPerLastSecs = 0;
+                    lastMeasureTime = Instant.now();
+                    timeoutCounter++;
+                    if (timeoutCounter >= 10) {
+                        break;
+                    }
                 }
+
             }
+
+            if (Duration.between(startRecvTime, Instant.now()).toMillis() <= 3e3) {
+                printSpeed(bytesPerLastSecs, bytesReceived, lastMeasureTime, startRecvTime);
+            }
+
 
             byte[] clientChecksumBytes = new byte[Long.BYTES];
 
             socketOutputStream.write("OK".getBytes());
-            clientSocket.setSoTimeout(WAIT_TIME);
+            clientSocket.setSoTimeout(WAIT_TIME * 10);
             if (socketInputStream.read(clientChecksumBytes, 0, Long.BYTES) != Long.BYTES) {
                 socketOutputStream.write("The file transfer failed".getBytes());
             }
@@ -124,14 +161,15 @@ public class Connection implements Runnable {
             long serverChecksum = checkedInputStream.getChecksum().getValue();
 
 
-            if ((outFile.length() == fileSizeInt) && (clientChecksum == serverChecksum)) {
+            if ((outFile.length() == fileSizeLong) && (clientChecksum == serverChecksum)) {
                 socketOutputStream.write("The file uploaded successfully".getBytes());
+                System.out.println("Got file from " + clientSocket.getInetAddress() + "  " + clientSocket.getPort() + " successfully");
             } else {
                 socketOutputStream.write("The file transfer failed".getBytes());
+                System.out.println("Got corrupted file from " + clientSocket.getInetAddress() + "  " + clientSocket.getPort());
             }
-
-        } catch (SocketTimeoutException ignored) {
-            System.out.println("Disconnected");
+        } catch (SocketTimeoutException e) {
+            System.out.println(clientSocket.getInetAddress() + "  " + clientSocket.getPort() + " disconnected");
         } catch (IOException e) {
             System.out.println(e.getMessage());
         } finally {

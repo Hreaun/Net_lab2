@@ -17,21 +17,20 @@ public class Server extends Thread {
     ThreadPoolExecutor executorPool;
     ArrayList<Socket> clients = new ArrayList<>();
 
-    public Server(int port) {
+    public Server(int port) throws IOException {
         this.port = port;
+        try {
+            s = new ServerSocket(port);
+        } catch (IOException e) {
+            System.out.println("Port is busy");
+            throw e;
+        }
     }
 
     @Override
     public void run() {
         executorPool = new ThreadPoolExecutor(CORE_POOL_SIZE, MAX_POOL_SIZE, KEEP_ALIVE_TIME,
                 TimeUnit.SECONDS, new ArrayBlockingQueue<>(100));
-        try {
-            s = new ServerSocket(port);
-        } catch (IOException e) {
-            System.out.println("Port is busy");
-            e.printStackTrace();
-            return;
-        }
 
         while (!isInterrupted()) {
             Socket clientSocket;

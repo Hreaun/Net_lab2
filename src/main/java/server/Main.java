@@ -1,5 +1,6 @@
 package server;
 
+import java.io.IOException;
 import java.util.Scanner;
 
 public class Main {
@@ -14,9 +15,12 @@ public class Main {
         } catch (NumberFormatException e) {
             System.out.println("Enter port of the server");
             return;
+        } catch (IOException e) {
+            return;
         }
 
         server.start();
+
 
         Scanner scanner = new Scanner(System.in);
         System.out.println("Press enter to close the server");
