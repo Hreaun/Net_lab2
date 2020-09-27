@@ -82,16 +82,19 @@ public class Connection implements Runnable {
 
 
             if (socketInputStream.read(fileSize, 0, Long.BYTES) != Long.BYTES) {
-                System.out.println("Didn't get file size");
+                System.out.println("Didn't get file size from "
+                        + clientSocket.getInetAddress() + "  " + clientSocket.getPort());
                 return;
             }
             if (socketInputStream.read(nameSize, 0, Integer.BYTES) != Integer.BYTES) {
-                System.out.println("Didn't get filename size");
+                System.out.println("Didn't get filename size from "
+                        + clientSocket.getInetAddress() + "  " + clientSocket.getPort());
                 return;
             }
             fileName = new byte[ByteBuffer.wrap(nameSize).getInt()];
             if (socketInputStream.read(fileName) != fileName.length) {
-                System.out.println("Didn't get file name");
+                System.out.println("Didn't get file name from "
+                        + clientSocket.getInetAddress() + "  " + clientSocket.getPort());
                 return;
             }
 

@@ -52,12 +52,9 @@ public class Client {
     void sendFile() {
         File file;
         try {
-            try {
-                file = new File(filePath);
-            } catch (NullPointerException e) {
-                System.out.println("Cannot find a file with the given name");
-                return;
-            }
+
+            file = new File(filePath);
+
             if (file.length() > 1e12) {
                 System.out.println("The file size must not exceed 1TB");
                 return;
